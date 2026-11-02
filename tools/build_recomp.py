@@ -12,6 +12,8 @@ import subprocess
 import sys
 
 SDK_REVISION = '40e9c35451305f09ca9d86f677e4b9c2c37ff26b'
+SDK_TREE = '46b4eeb0bc622d546a07e721e2c56ee820649baa'
+VENDORED_SDK = Path('third_party/XboxXBERecomp')
 
 # Ubuntu and Debian package names. SDL is built from source: without these headers its X11, Wayland and audio
 # back ends are left out and the game cannot open a window or play sound.
@@ -23,11 +25,28 @@ LINUX_HEADERS = ('X11/Xlib.h', 'X11/extensions/XInput2.h', 'xkbcommon/xkbcommon.
                  'alsa/asoundlib.h', 'pulse/pulseaudio.h')
 
 
-def check_sdk(parser, sdk):
-    revision = subprocess.run(['git', '-c', 'safe.directory=*', '-C', str(sdk), 'rev-parse', 'HEAD'],
-                              capture_output=True, text=True, check=True).stdout.strip()
-    if revision != SDK_REVISION:
-        parser.error('The SDK revision differs from the reviewed integration')
+def check_sdk(parser, sdk, root):
+    sdk = sdk.resolve()
+    if (sdk / '.git').exists():
+        result = subprocess.run(['git', '-c', 'safe.directory=*', '-C', str(sdk), 'rev-parse', 'HEAD'],
+                                capture_output=True, text=True)
+        if result.returncode or result.stdout.strip() != SDK_REVISION:
+            parser.error('The SDK revision differs from the reviewed integration')
+        return
+
+    vendored = (root / VENDORED_SDK).resolve()
+    if sdk != vendored:
+        parser.error('The SDK has no Git metadata and is not the vendored XboxXBERecomp copy')
+
+    tree = subprocess.run(['git', '-c', 'safe.directory=*', '-C', str(root), 'rev-parse',
+                           f'HEAD:{VENDORED_SDK.as_posix()}'], capture_output=True, text=True)
+    if tree.returncode or tree.stdout.strip() != SDK_TREE:
+        parser.error('The vendored SDK tree differs from the reviewed integration')
+
+    status = subprocess.run(['git', '-c', 'safe.directory=*', '-C', str(root), 'status', '--porcelain',
+                             '--untracked-files=no', '--', VENDORED_SDK.as_posix()], capture_output=True, text=True)
+    if status.returncode or status.stdout.strip():
+        parser.error('The vendored SDK has local modifications')
 
 
 def run_steps(commands, root, logs, env=None, **popen):
@@ -45,7 +64,7 @@ def windows_build(parser, args, root):
     for file in (xbe, llvm / 'bin/clang++.exe', llvm / 'bin/lld-link.exe', sdk / 'cmake/XbeRecomp.cmake'):
         if not file.is_file():
             parser.error(f'Required file is missing: {file}')
-    check_sdk(parser, sdk)
+    check_sdk(parser, sdk, root)
     vswhere = Path(os.environ.get('ProgramFiles(x86)', 'C:/Program Files (x86)')) / 'Microsoft Visual Studio/Installer/vswhere.exe'
     located = subprocess.run([str(vswhere), '-latest', '-products', '*', '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-property', 'installationPath'], capture_output=True, text=True, check=True).stdout.strip()
     if not located:
@@ -149,7 +168,7 @@ def linux_build(parser, args, root):
     if missing or headers:
         parser.error('Missing build tools or headers: ' + ', '.join(missing + headers) +
                      f'\nOn Ubuntu or Debian: sudo apt install {LINUX_PACKAGES}')
-    check_sdk(parser, sdk)
+    check_sdk(parser, sdk, root)
     if args.build_dir:
         build = args.build_dir.resolve()
     elif str(root).startswith('/mnt/'):
@@ -186,7 +205,8 @@ def linux_build(parser, args, root):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--xbe', required=True, type=Path)
-    parser.add_argument('--sdk', required=True, type=Path)
+    parser.add_argument('--sdk', type=Path,
+                        help='XboxXBERecomp SDK folder (default: third_party/XboxXBERecomp)')
     parser.add_argument('--llvm', type=Path, help='LLVM folder (required on Windows; Linux defaults to the system Clang)')
     parser.add_argument('--jobs', type=int, default=2, choices=range(1, 9))
     parser.add_argument('--configure-only', action='store_true')
@@ -197,6 +217,8 @@ def main():
     parser.add_argument('--wsl-distro', help='WSL distribution for --linux (default: the WSL default)')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    if args.sdk is None:
+        args.sdk = root / VENDORED_SDK
     if sys.platform.startswith('linux'):
         linux_build(parser, args, root)
         return
