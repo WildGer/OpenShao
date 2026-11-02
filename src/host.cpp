@@ -122,7 +122,7 @@ int Configure() {
             if (count.size()!=1 || count[0]<L'1' || count[0]>L'3') invalid=true;
             else options.virtual_gamepads=unsigned(count[0]-L'0');
         }
-        else if (arg == L"--launcher-test" && i + 1 < argc) options.launcher_test = argv[++i];
+        else if (arg == L"--launcher-test" && i + 1 < argc) { options.launcher_test = argv[++i]; options.no_launcher = false; }
         else if (arg == L"--game" && i + 1 < argc) options.game = argv[++i];
         else if (arg == L"--disc" && i + 1 < argc) options.disc = argv[++i];
         else if (arg == L"--timeout" && i + 1 < argc) {
