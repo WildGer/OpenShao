@@ -11,7 +11,7 @@ struct Options {
     bool host_test = false;
     bool portable_saves = false;
     bool setup = false;
-    bool no_launcher = false;
+    bool no_launcher = true;
     bool configure_only = false;
     bool paths = false;
     bool support_report = false;
